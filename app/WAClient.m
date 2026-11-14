@@ -152,9 +152,16 @@ NSString *WAEscape(NSString *s) {
 	return self;
 }
 
+static BOOL gNetworkDown;
+
+- (BOOL)networkUp {
+	return !gNetworkDown;
+}
+
 // network changed, recheck
 static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilityFlags flags, void *info) {
 	WALog(@"network changed (flags %x)", flags);
+	gNetworkDown = !(flags & kSCNetworkReachabilityFlagsReachable);
 	[[WAClient shared] chooseServer:nil];
 	[[NSNotificationCenter defaultCenter] postNotificationName:WAClientNetworkChangedNotification object:nil];
 }
@@ -199,7 +206,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	if (![base hasPrefix:@"http://"] && ![base hasPrefix:@"https://"]) base = [@"http://" stringByAppendingString:base];
 	NSURL *url = [NSURL URLWithString:base];
 	if (!url.host.length) {
-		completion([NSError errorWithDomain:@"WA4S" code:0 userInfo:@{NSLocalizedDescriptionKey: @"Please enter the address of your bridge."}]);
+		completion([NSError errorWithDomain:@"WA4S" code:0 userInfo:@{NSLocalizedDescriptionKey: WAL(@"Please enter the address of your bridge.")}]);
 		return;
 	}
 	if (!url.port) base = [base stringByAppendingString:@":8097"];
@@ -211,9 +218,9 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	[WAConnection load:req pin:nil completion:^(NSData *data, NSInteger status, NSError *error) {
 		id json = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
 		if (error || status != 200 || ![json isKindOfClass:[NSDictionary class]] || ![json[@"token"] length]) {
-			NSString *msg = error ? @"The bridge could not be reached. Check the address and that this iPhone is on the same Wi-Fi."
-				: status == 403 ? @"Wrong or expired setup code. Restart the bridge for a new one."
-				: [NSString stringWithFormat:@"This is not a WA Classic bridge (error %ld).", (long)status];
+			NSString *msg = error ? WAL(@"The bridge could not be reached. Check the address and that this iPhone is on the same Wi-Fi.")
+				: status == 403 ? WAL(@"Wrong or expired setup code. Restart the bridge for a new one.")
+				: [NSString stringWithFormat:WAL(@"This is not a WA Classic bridge (error %ld)."), (long)status];
 			WALog(@"setup code: status %ld %@", (long)status, error.localizedDescription ?: @"");
 			completion([NSError errorWithDomain:@"WA4S" code:status userInfo:@{NSLocalizedDescriptionKey: msg}]);
 			return;
@@ -325,7 +332,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 		}
 		if (!error && code != 200) {
 			NSString *msg = [json isKindOfClass:[NSDictionary class]] ? json[@"error"] : nil;
-			if (!msg) msg = code == 401 ? @"Wrong key" : [NSString stringWithFormat:@"Error %ld", (long)code];
+			if (!msg) msg = code == 401 ? WAL(@"Wrong key") : [NSString stringWithFormat:WAL(@"Error %ld"), (long)code];
 			error = [NSError errorWithDomain:@"WA4S" code:code userInfo:@{NSLocalizedDescriptionKey: msg}];
 			json = nil;
 		}

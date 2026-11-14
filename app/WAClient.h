@@ -21,6 +21,8 @@ typedef void (^WAJSONBlock)(id json, NSError *error);
 @property (nonatomic, copy) NSString *token;
 @property (nonatomic, readonly) NSString *serverURL;
 @property (nonatomic, readonly) BOOL away;
+// NO only after ios said there is no network at all (unknown counts as up)
+@property (nonatomic, readonly) BOOL networkUp;
 // pick the address that works
 - (void)chooseServer:(void (^)(BOOL reachable))done;
 // main thread only

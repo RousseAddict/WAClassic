@@ -57,7 +57,7 @@ static NSDictionary *QuoteOf(NSDictionary *m) {
 }
 
 static NSString *QuoteName(NSDictionary *q) {
-	if ([q[@"fromMe"] boolValue]) return @"You";
+	if ([q[@"fromMe"] boolValue]) return WAL(@"You");
 	return [q[@"name"] length] ? q[@"name"] : [[q[@"sender"] componentsSeparatedByString:@"@"] firstObject];
 }
 
@@ -128,19 +128,19 @@ static UIImage *CallGlyph(NSDictionary *m) {
 
 static NSString *DayTitle(long long ts) {
 	static NSDateFormatter *f;
-	if (!f) {
-		f = [[NSDateFormatter alloc] init];
-		f.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_GB"];
-		f.dateFormat = @"EEEE, d MMMM yyyy";
+	static NSUInteger gen;
+	if (!f || gen != WALanguageGeneration()) {
+		f = WADateFormatter(@"EEEE, d MMMM yyyy", @"EEEEdMMMMyyyy");
+		gen = WALanguageGeneration();
 	}
 	NSDate *d = [NSDate dateWithTimeIntervalSince1970:ts];
 	NSCalendar *cal = [NSCalendar currentCalendar];
 	NSDate *today = nil;
 	[cal rangeOfUnit:NSDayCalendarUnit startDate:&today interval:NULL forDate:[NSDate date]];
 	NSTimeInterval diff = [d timeIntervalSinceDate:today];
-	if (diff >= 0) return @"Today";
-	if (diff >= -86400) return @"Yesterday";
-	return [f stringFromDate:d];
+	if (diff >= 0) return WAL(@"Today");
+	if (diff >= -86400) return WAL(@"Yesterday");
+	return WACapitalized([f stringFromDate:d]);
 }
 
 static NSString *DayKey(long long ts) {
@@ -473,7 +473,7 @@ static NSString *DayKey(long long ts) {
 	_sendButton.frame = CGRectMake(w - 66, 0, 66, 40);
 	[_sendButton setBackgroundImage:WAImg(@"SendButtonNormal") forState:UIControlStateNormal];
 	[_sendButton setBackgroundImage:WAImg(@"SendButtonPressed") forState:UIControlStateHighlighted];
-	[_sendButton setTitle:@"Send" forState:UIControlStateNormal];
+	[_sendButton setTitle:WAL(@"Send") forState:UIControlStateNormal];
 	_sendButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
 	_sendButton.titleLabel.shadowOffset = CGSizeMake(0, -1);
 	[_sendButton setTitleShadowColor:[UIColor colorWithWhite:0 alpha:0.35] forState:UIControlStateNormal];
@@ -512,7 +512,7 @@ static NSString *DayKey(long long ts) {
 	_slideLabel.textColor = WAColor(0x6D6D6D);
 	_slideLabel.backgroundColor = [UIColor clearColor];
 	_slideLabel.textAlignment = NSTextAlignmentCenter;
-	_slideLabel.text = @"‹  slide to cancel";
+	_slideLabel.text = WAL(@"‹  slide to cancel");
 	[_recordView addSubview:_slideLabel];
 	[_bar addSubview:_recordView];
 
@@ -671,8 +671,8 @@ static NSString *DayKey(long long ts) {
 - (void)thumbTapped:(UIButton *)b {
 	_removeIndex = b.tag;
 	[_field resignFirstResponder];
-	UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:@"Cancel"
-		destructiveButtonTitle:@"Remove Attachment" otherButtonTitles:nil];
+	UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:WAL(@"Cancel")
+		destructiveButtonTitle:WAL(@"Remove Attachment") otherButtonTitles:nil];
 	[sheet showInView:self.view];
 }
 
@@ -738,7 +738,7 @@ static NSString *DayKey(long long ts) {
 	[self layoutTitle];
 
 	if (_group) {
-		self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Info"
+		self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:WAL(@"Info")
 			style:UIBarButtonItemStyleBordered target:self action:@selector(showInfo)];
 	} else {
 		UIImageView *pic = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 32, 32)];
@@ -779,8 +779,8 @@ static NSString *DayKey(long long ts) {
 		return;
 	}
 	UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil
-		destructiveButtonTitle:nil otherButtonTitles:@"Voice Call", @"Video Call", nil];
-	sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Cancel"];
+		destructiveButtonTitle:nil otherButtonTitles:WAL(@"Voice Call"), WAL(@"Video Call"), nil];
+	sheet.cancelButtonIndex = [sheet addButtonWithTitle:WAL(@"Cancel")];
 	[sheet showInView:self.view];
 }
 
@@ -836,11 +836,11 @@ static NSString *DayKey(long long ts) {
 	NSString *text = nil;
 	if ([p[@"typing"] boolValue]) {
 		NSString *who = p[@"typingName"];
-		text = who.length ? [NSString stringWithFormat:@"%@ is typing...", who] : @"typing...";
+		text = who.length ? [NSString stringWithFormat:WAL(@"%@ is typing..."), who] : WAL(@"typing...");
 	} else if (_group) {
 		text = _members;
 	} else if ([p[@"online"] boolValue]) {
-		text = @"online";
+		text = WAL(@"online");
 	} else if ([p[@"lastSeen"] longLongValue] > 0) {
 		text = WALastSeen([p[@"lastSeen"] longLongValue]);
 	}
@@ -864,6 +864,10 @@ static NSString *DayKey(long long ts) {
 		[_rows addObject:m];
 	}
 	[_table reloadData];
+	// reloadData keeps the old offset. if the list got shorter (temp copy gone) that leaves a gap at the bottom
+	[_table layoutIfNeeded];
+	CGFloat maxY = MAX(_table.contentSize.height + _table.contentInset.bottom - _table.bounds.size.height, -_table.contentInset.top);
+	if (_table.contentOffset.y > maxY) _table.contentOffset = CGPointMake(0, maxY);
 }
 
 - (void)scrollToBottom:(BOOL)animated {
@@ -884,6 +888,7 @@ static NSString *DayKey(long long ts) {
 		if (![m[@"chat"] isEqualToString:_jid]) continue;
 		changed = YES;
 		NSUInteger idx = [self indexOfMessage:m];
+		if (idx == NSNotFound) idx = [self indexOfTempFor:m];
 		if (idx != NSNotFound) {
 			_messages[idx] = m;
 		} else {
@@ -907,6 +912,16 @@ static NSString *DayKey(long long ts) {
 - (NSUInteger)indexOfMessage:(NSDictionary *)m {
 	return [_messages indexOfObjectPassingTest:^BOOL(NSDictionary *o, NSUInteger i, BOOL *stop) {
 		return [o[@"seq"] isEqual:m[@"seq"]] || [o[@"id"] isEqualToString:m[@"id"]];
+	}];
+}
+
+// our own message can come in over the long poll before /api/send answers.
+// it takes the place of the oldest temp copy that looks the same instead of showing up twice
+- (NSUInteger)indexOfTempFor:(NSDictionary *)m {
+	if (![m[@"fromMe"] boolValue] || [m[@"seq"] longLongValue] <= 0) return NSNotFound;
+	return [_messages indexOfObjectPassingTest:^BOOL(NSDictionary *o, NSUInteger i, BOOL *stop) {
+		return [o[@"seq"] longLongValue] < 0 && [o[@"kind"] isEqualToString:m[@"kind"]]
+			&& [(o[@"text"] ?: @"") isEqualToString:(m[@"text"] ?: @"")];
 	}];
 }
 
@@ -954,12 +969,16 @@ static NSString *DayKey(long long ts) {
 	[self scrollToBottom:YES];
 	request(^(id json, NSError *error) {
 		NSUInteger idx = [self->_messages indexOfObject:temp];
-		if (idx == NSNotFound) return;
+		if (idx == NSNotFound) {
+			// long poll already swapped it in. the photo preview only exists now
+			if (!error) [self reloadSeq:json[@"seq"]];
+			return;
+		}
 		if (error) {
 			[self->_messages removeObjectAtIndex:idx];
 			[self rebuildRows];
-			[[[UIAlertView alloc] initWithTitle:@"Not sent" message:error.localizedDescription delegate:nil
-				cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
+			[[[UIAlertView alloc] initWithTitle:WAL(@"Not sent") message:error.localizedDescription delegate:nil
+				cancelButtonTitle:WAL(@"OK") otherButtonTitles:nil] show];
 			return;
 		}
 		// long poll might have it already
@@ -1189,7 +1208,7 @@ static NSString *DayKey(long long ts) {
 			cell.videoPlay.frame = CGRectMake(CGRectGetMidX(p) - 22, CGRectGetMidY(p) - 22, 44, 44);
 			cell.videoBar.frame = CGRectMake(p.origin.x, CGRectGetMaxY(p) - 18, p.size.width, 18);
 			NSInteger secs = [m[@"secs"] integerValue];
-			cell.videoLabel.text = loading ? @"Loading video…" : [NSString stringWithFormat:@"▶  %@", WADuration(secs)];
+			cell.videoLabel.text = loading ? WAL(@"Loading video…") : [NSString stringWithFormat:@"▶  %@", WADuration(secs)];
 			cell.videoLabel.frame = CGRectMake(p.origin.x + 6, CGRectGetMaxY(p) - 17, p.size.width - 12, 16);
 			cell.videoLabel.textAlignment = loading ? NSTextAlignmentCenter : NSTextAlignmentRight;
 		}
@@ -1319,8 +1338,8 @@ static NSString *DayKey(long long ts) {
 			if (error || code != 200 || !data.length) {
 				self->_playingSeq = nil;
 				[self reloadSeq:seq];
-				[[[UIAlertView alloc] initWithTitle:@"Audio" message:@"Could not be loaded." delegate:nil
-					cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
+				[[[UIAlertView alloc] initWithTitle:WAL(@"Audio") message:WAL(@"Could not be loaded.") delegate:nil
+					cancelButtonTitle:WAL(@"OK") otherButtonTitles:nil] show];
 				return;
 			}
 			[self->_voiceData setObject:data forKey:seq];
@@ -1410,8 +1429,8 @@ static NSString *DayKey(long long ts) {
 	_recorder = [[AVAudioRecorder alloc] initWithURL:[NSURL fileURLWithPath:[self recordingPath]] settings:settings error:&error];
 	if (!_recorder || ![_recorder record]) {
 		_recorder = nil;
-		[[[UIAlertView alloc] initWithTitle:@"Record" message:error.localizedDescription ?: @"Microphone not available."
-			delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
+		[[[UIAlertView alloc] initWithTitle:WAL(@"Record") message:error.localizedDescription ?: WAL(@"Microphone not available.")
+			delegate:nil cancelButtonTitle:WAL(@"OK") otherButtonTitles:nil] show];
 		return;
 	}
 	_recordView.hidden = NO;
@@ -1452,31 +1471,31 @@ static NSString *DayKey(long long ts) {
 	UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil
 		destructiveButtonTitle:nil otherButtonTitles:nil];
 	if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]) {
-		[sheet addButtonWithTitle:@"Take Photo or Video"];
+		[sheet addButtonWithTitle:WAL(@"Take Photo or Video")];
 	}
-	[sheet addButtonWithTitle:@"Choose Existing"];
-	sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Cancel"];
+	[sheet addButtonWithTitle:WAL(@"Choose Existing")];
+	sheet.cancelButtonIndex = [sheet addButtonWithTitle:WAL(@"Cancel")];
 	[sheet showInView:self.view];
 }
 
 - (void)actionSheet:(UIActionSheet *)sheet clickedButtonAtIndex:(NSInteger)index {
 	if (index == sheet.cancelButtonIndex) return;
 	NSString *title = [sheet buttonTitleAtIndex:index];
-	if ([title isEqualToString:@"Remove Attachment"]) {
+	if ([title isEqualToString:WAL(@"Remove Attachment")]) {
 		if (_removeIndex >= 0 && _removeIndex < (NSInteger)_pending.count) [_pending removeObjectAtIndex:_removeIndex];
 		[self updateAttachmentsBar];
 		return;
 	}
-	if ([title isEqualToString:@"Call Back"]) {
+	if ([title isEqualToString:WAL(@"Call Back")]) {
 		[self startCall];
 		return;
 	}
-	if ([title isEqualToString:@"Voice Call"] || [title isEqualToString:@"Video Call"]) {
-		[[WACall shared] callJID:_jid name:_chat[@"name"] video:[title isEqualToString:@"Video Call"]];
+	if ([title isEqualToString:WAL(@"Voice Call")] || [title isEqualToString:WAL(@"Video Call")]) {
+		[[WACall shared] callJID:_jid name:_chat[@"name"] video:[title isEqualToString:WAL(@"Video Call")]];
 		return;
 	}
 	UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-	picker.sourceType = [title isEqualToString:@"Take Photo or Video"] ? UIImagePickerControllerSourceTypeCamera
+	picker.sourceType = [title isEqualToString:WAL(@"Take Photo or Video")] ? UIImagePickerControllerSourceTypeCamera
 		: UIImagePickerControllerSourceTypePhotoLibrary;
 	picker.mediaTypes = @[(__bridge NSString *)kUTTypeImage, (__bridge NSString *)kUTTypeMovie];
 	picker.videoQuality = UIImagePickerControllerQualityTypeMedium;
@@ -1570,8 +1589,8 @@ static NSString *DayKey(long long ts) {
 	if (IsCall(m) && !_group) {
 		[_field resignFirstResponder];
 		UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil delegate:self cancelButtonTitle:nil
-			destructiveButtonTitle:nil otherButtonTitles:@"Call Back", nil];
-		sheet.cancelButtonIndex = [sheet addButtonWithTitle:@"Cancel"];
+			destructiveButtonTitle:nil otherButtonTitles:WAL(@"Call Back"), nil];
+		sheet.cancelButtonIndex = [sheet addButtonWithTitle:WAL(@"Cancel")];
 		[sheet showInView:self.view];
 		return;
 	}
@@ -1723,8 +1742,8 @@ static NSString *DayKey(long long ts) {
 	CGFloat width = _table.bounds.size.width;
 	CGRect bubble = CGRectMake(mine ? width - size.width - 3 : 3, cell.origin.y + 2, size.width, size.height);
 	UIMenuController *menu = [UIMenuController sharedMenuController];
-	menu.menuItems = @[[[UIMenuItem alloc] initWithTitle:@"Reply" action:@selector(replyToMessage:)],
-		[[UIMenuItem alloc] initWithTitle:@"React" action:@selector(reactToMessage:)]];
+	menu.menuItems = @[[[UIMenuItem alloc] initWithTitle:WAL(@"Reply") action:@selector(replyToMessage:)],
+		[[UIMenuItem alloc] initWithTitle:WAL(@"React") action:@selector(reactToMessage:)]];
 	[menu setTargetRect:bubble inView:_table];
 	[menu setMenuVisible:YES animated:YES];
 }
@@ -1832,8 +1851,8 @@ static NSString *DayKey(long long ts) {
 			self->_loadingVideo = nil;
 			[self reloadSeq:seq];
 			if (status != 200 || !data.length || ![data writeToFile:path atomically:YES]) {
-				[[[UIAlertView alloc] initWithTitle:@"Video" message:@"Could not be loaded." delegate:nil
-					cancelButtonTitle:@"OK" otherButtonTitles:nil] show];
+				[[[UIAlertView alloc] initWithTitle:WAL(@"Video") message:WAL(@"Could not be loaded.") delegate:nil
+					cancelButtonTitle:WAL(@"OK") otherButtonTitles:nil] show];
 				return;
 			}
 			[self presentVideoAt:path];
