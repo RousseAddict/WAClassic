@@ -146,8 +146,21 @@ func (b *Bridge) onMessage(e *events.Message, live bool) {
 }
 
 func describeEvent(e *events.Message) (kind, text string, raw []byte) {
-	kind, text = describe(e.Message)
-	if e.IsViewOnce {
+	msg := e.Message
+	viewOnce := e.IsViewOnce
+	// WhatsApp can nest ViewOnce inside an associated-child wrapper (or the
+	// reverse). The library unwraps these wrappers in a fixed order, so inspect
+	// the original payload as well to avoid silently dropping newer variants.
+	content, found := viewOnceContent(e.RawMessage, 0)
+	if !found {
+		content, found = viewOnceContent(e.Message, 0)
+	}
+	if found {
+		msg = content
+		viewOnce = true
+	}
+	kind, text = describe(msg)
+	if viewOnce {
 		switch kind {
 		case "image":
 			kind = "view-once-photo"
@@ -162,6 +175,57 @@ func describeEvent(e *events.Message) (kind, text string, raw []byte) {
 		raw, _ = proto.Marshal(e.Message)
 	}
 	return kind, text, raw
+}
+
+func viewOnceContent(msg *waE2E.Message, depth int) (*waE2E.Message, bool) {
+	if msg == nil || depth > 8 {
+		return nil, false
+	}
+	// WhatsApp has also moved the marker onto the media payload itself. The
+	// library's event flag only covers the older ViewOnceMessage wrappers.
+	if msg.GetImageMessage().GetViewOnce() || msg.GetVideoMessage().GetViewOnce() ||
+		msg.GetAudioMessage().GetViewOnce() || msg.GetExtendedTextMessage().GetViewOnce() {
+		return msg, true
+	}
+	if child := msg.GetViewOnceMessage().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	if child := msg.GetViewOnceMessageV2().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	if child := msg.GetViewOnceMessageV2Extension().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	for _, child := range []*waE2E.Message{
+		msg.GetAssociatedChildMessage().GetMessage(),
+		msg.GetEphemeralMessage().GetMessage(),
+		msg.GetDeviceSentMessage().GetMessage(),
+		msg.GetBotInvokeMessage().GetMessage(),
+		msg.GetEditedMessage().GetMessage(),
+	} {
+		if content, found := viewOnceContent(child, depth+1); found {
+			return content, true
+		}
+	}
+	return nil, false
+}
+
+func unwrapMessageContainers(msg *waE2E.Message, depth int) *waE2E.Message {
+	if msg == nil || depth > 8 {
+		return msg
+	}
+	for _, child := range []*waE2E.Message{
+		msg.GetAssociatedChildMessage().GetMessage(),
+		msg.GetEphemeralMessage().GetMessage(),
+		msg.GetDeviceSentMessage().GetMessage(),
+		msg.GetBotInvokeMessage().GetMessage(),
+		msg.GetEditedMessage().GetMessage(),
+	} {
+		if child != nil {
+			return unwrapMessageContainers(child, depth+1)
+		}
+	}
+	return msg
 }
 
 // new whatsapp sends hd photos/videos twice: the normal one and an hd copy pointing at it.
