@@ -70,7 +70,11 @@ func (b *Bridge) handle(evt any) {
 	case *events.StreamReplaced:
 		errCounts.add("wa stream replaced")
 	case *events.UndecryptableMessage:
-		errCounts.add("wa undecryptable")
+		if e.IsUnavailable && e.UnavailableType == events.UnavailableTypeViewOnce {
+			b.onUnavailableViewOnce(e)
+		} else {
+			errCounts.add("wa undecryptable")
+		}
 	case *events.ConnectFailure:
 		errCounts.add(fmt.Sprintf("wa connect failure %d", int(e.Reason)))
 	case *events.TemporaryBan:
@@ -79,6 +83,40 @@ func (b *Bridge) handle(evt any) {
 		errCounts.add("wa logged out")
 		log.Printf("logged out by the phone (reason %v)", e.Reason)
 		b.restartSoon("logged out") // restarts unlinked, shows qr again
+	}
+}
+
+// onUnavailableViewOnce stores a safe placeholder when WhatsApp sends the
+// view-once notification but withholds the message ciphertext from this device.
+// There is no media payload to display or download in this case.
+func (b *Bridge) onUnavailableViewOnce(e *events.UndecryptableMessage) {
+	ctx := context.Background()
+	chat := b.chatKey(ctx, e.Info.Chat)
+	if skipChat(chat) || e.Info.ID == "" {
+		return
+	}
+	sender := b.chatKey(ctx, e.Info.Sender)
+	m := &Message{
+		ID:     e.Info.ID,
+		Chat:   chat.String(),
+		Sender: sender.String(),
+		FromMe: e.Info.IsFromMe,
+		TS:     unix(e.Info.Timestamp),
+		Kind:   "view-once-media",
+		Text:   "",
+		Status: statusDelivered,
+	}
+	if m.FromMe {
+		m.Status = statusSent
+	}
+	added, err := b.store.AddMessage(m, nil, !m.FromMe)
+	if err != nil {
+		log.Printf("store unavailable view-once placeholder: %v", err)
+		return
+	}
+	if added {
+		log.Printf("stored unavailable view-once placeholder")
+		b.store.notify()
 	}
 }
 
