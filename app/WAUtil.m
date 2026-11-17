@@ -108,11 +108,13 @@ void WALog(NSString *format, ...) {
 		[line writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:NULL];
 		return;
 	}
-	if ([h seekToEndOfFile] > 200000) {
-		[h truncateFileAtOffset:0];
+	// throws when the disk is full, a log line isn't worth a crash
+	@try {
+		if ([h seekToEndOfFile] > 200000) [h truncateFileAtOffset:0];
+		[h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+	} @catch (NSException *e) {
 	}
-	[h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-	[h closeFile];
+	@try { [h closeFile]; } @catch (NSException *e) {}
 }
 
 NSString *WAEmojiForDisplay(NSString *emoji) {

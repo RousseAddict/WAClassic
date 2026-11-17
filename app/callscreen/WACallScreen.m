@@ -39,9 +39,13 @@ static void CSLog(NSString *format, ...) {
 		[[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
 		f = [NSFileHandle fileHandleForWritingAtPath:path];
 	}
-	[f seekToEndOfFile];
-	[f writeData:[[NSString stringWithFormat:@"%@ %@\n", [NSDate date], line] dataUsingEncoding:NSUTF8StringEncoding]];
-	[f closeFile];
+	// throws when the disk is full, and this runs in springboard
+	@try {
+		[f seekToEndOfFile];
+		[f writeData:[[NSString stringWithFormat:@"%@ %@\n", [NSDate date], line] dataUsingEncoding:NSUTF8StringEncoding]];
+		[f closeFile];
+	} @catch (NSException *e) {
+	}
 }
 
 static id Send(id target, const char *name) {

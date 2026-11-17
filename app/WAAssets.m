@@ -1,4 +1,5 @@
 #import "WAAssets.h"
+#import "WADiag.h"
 #import "WAClient.h"
 #import "WAUtil.h"
 #import <AudioToolbox/AudioToolbox.h>
@@ -79,12 +80,20 @@ static void CopyIntoBundle(void) {
 		NSDictionary *attrs = [fm attributesOfItemAtPath:dst error:NULL];
 		if (!data.length || ![attrs.fileType isEqualToString:NSFileTypeRegular] || ![fm isWritableFileAtPath:dst]) continue;
 		if ([[NSData dataWithContentsOfFile:dst] isEqualToData:data]) continue;
-		// write in place, can't create files in the root owned app folder
+		// write in place, can't create files in the root owned app folder.
+		// file handles throw when a write fails (full disk, odd jailbreak mounts), that crashed every start
 		NSFileHandle *out = [NSFileHandle fileHandleForWritingAtPath:dst];
-		[out truncateFileAtOffset:0];
-		[out writeData:data];
-		[out closeFile];
-		WALog(@"assets: %@ copied into the app", file);
+		@try {
+			[out truncateFileAtOffset:0];
+			[out writeData:data];
+			WALog(@"assets: %@ copied into the app", file);
+		} @catch (NSException *e) {
+			WALog(@"assets: can't copy %@ into the app: %@", file, e.reason);
+			[[WADiag shared] record:@"assets copy into app failed"];
+			break;
+		} @finally {
+			@try { [out closeFile]; } @catch (NSException *e) {}
+		}
 	}
 }
 

@@ -197,6 +197,9 @@ static UINavigationController *Nav(UIViewController *root) {
 	self.bridgeVersionChecked = YES;
 	NSString *app = [NSBundle mainBundle].infoDictionary[@"CFBundleVersion"];
 	WALog(@"bridge version %@, app %@", bridge ?: @"none", app);
+	// hotfixes (1.0.4.1) don't need a new bridge
+	NSArray *parts = [app componentsSeparatedByString:@"."];
+	if (parts.count > 3) app = [[parts subarrayWithRange:NSMakeRange(0, 3)] componentsJoinedByString:@"."];
 	// old bridges don't send one, own builds say dev
 	if ([bridge isEqualToString:@"dev"]) return;
 	if (bridge.length && [bridge compare:app options:NSNumericSearch] != NSOrderedAscending) return;
