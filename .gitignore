@@ -5,3 +5,5 @@ data/
 packages/
 tools/shot6/shot6
 bridge/debs/*.deb
+.env.local
+tools/ios12/build/

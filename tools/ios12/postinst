@@ -1,0 +1,18 @@
+#!/bin/sh
+# WA Classic iOS 12 build. Based on WA Classic's own postinst (tools/package-app.sh),
+# minus the iOS 6 icon-cache and respring handling.
+APP=/Applications/WA4S.app
+D=/var/mobile/Library/WA4S
+A=$D/Assets
+# the app's data folder, owned by mobile, otherwise no log or assets on a fresh install
+mkdir -p "$D" && chown mobile:mobile "$D"
+# launch images and sounds ship as placeholders; copy back what the app already synced
+# from the bridge, and let the app (running as mobile) overwrite them later
+for f in Default.png Default@2x.png Default-568h@2x.png Tri-tone.caf Ringtone.caf Xylophone.caf Bell.caf Boing.caf Glass.caf Harp.caf TimePassing.caf; do
+  if [ -f "$A/$f" ] && [ ! -L "$A/$f" ]; then cat "$A/$f" > "$APP/$f"; fi
+  chown mobile:mobile "$APP/$f"
+  chmod 644 "$APP/$f"
+done
+# register the app with SpringBoard (Procursus uikittools: -p = this app only)
+uicache -p "$APP" 2>/dev/null || uicache -a 2>/dev/null || uicache 2>/dev/null || true
+exit 0
