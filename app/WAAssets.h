@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 
 // 2.10 assets only live on the device (Library/WA4S/Assets), bridge downloads them once.

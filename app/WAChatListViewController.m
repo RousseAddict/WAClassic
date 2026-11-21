@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WAChatListViewController.h"
 #import "WAChatViewController.h"
@@ -441,7 +443,9 @@
 
 - (void)reload {
 	WAClient *client = [WAClient shared];
-	if (!client.configured || _loading) {
+	// launched in the background, the list loads when the app is opened
+	BOOL background = [UIApplication sharedApplication].applicationState == UIApplicationStateBackground;
+	if (!client.configured || _loading || background) {
 		[self endRefreshing];
 		return;
 	}

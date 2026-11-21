@@ -1,9 +1,12 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import "WAAssets.h"
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <libkern/OSAtomic.h>
 #import <notify.h>
 #import "WACall.h"
+#include <sys/resource.h>
 #import "WAClient.h"
 #import "WAPrefs.h"
 #import "WAUtil.h"
@@ -95,6 +98,19 @@ static void WAInitCAudioSession(void) {
 	// debug counters, logged every 5s
 	volatile uint32_t _diagPlay, _diagLoud, _diagRecv, _diagRec;
 	CFAbsoluteTime _diagLast;
+	// per call, summed up in "call stats" at the end (play ring: 16 bytes = 1 ms)
+	volatile uint32_t _statUnderruns, _statTrims, _statTrimmed, _statFillN, _statFillMax;
+	volatile uint64_t _statFillSum;
+	volatile CFAbsoluteTime _firstSound; // first loud render
+	CFAbsoluteTime _firstAudio, _statTickLast, _statTickMax, _cpuLast, _cpuTime;
+	double _cpuSum;
+	int _cpuN, _statReconnects;
+	NSDate *_audioStartedAt, *_callStartedAt;
+	BOOL _timingLogged;
+#ifdef WA_DEV
+	volatile BOOL _latArmed;
+	volatile CFAbsoluteTime _latSent, _latHeard;
+#endif
 	uint32_t _ringbackPhase;
 	int16_t _recBuf[4096];
 	AVAudioPlayer *_ringer;
@@ -326,6 +342,8 @@ static BOOL SameMedia(NSDictionary *a, NSDictionary *b) {
 	_info = @{@"id": @"", @"peer": jid, @"name": name ?: @"", @"incoming": @NO, @"state": @"calling", @"video": @(video)};
 	[[NSNotificationCenter defaultCenter] postNotificationName:WACallChangedNotification object:self];
 	_starting = YES;
+	_callStartedAt = [NSDate date];
+	_answeredAt = nil;
 	[[WAClient shared] post:@"/api/call/start" params:@{@"chat": jid, @"video": video ? @"1" : @"0"} completion:^(id json, NSError *error) {
 		self->_starting = NO;
 		if (error) {
@@ -359,6 +377,7 @@ static BOOL SameMedia(NSDictionary *a, NSDictionary *b) {
 	if (![self.state isEqualToString:@"ringing"]) return;
 	self.ownID = _info[@"id"];
 	_answeredAt = [NSDate date];
+	_callStartedAt = nil;
 	// keep the ring playing silently, ios only lets us start call audio while sound is on
 	_ringer.volume = 0;
 	if (_ringSound) {
@@ -620,9 +639,17 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 		return noErr;
 	}
 	int64_t have = RingCount(&self->_play);
+	BOOL wasBuffering = self->_buffering;
 	// jitter buffer 120-400ms
 	if (self->_buffering && have >= kRate * 12 / 100) self->_buffering = NO;
-	if (have > kRate * 4 / 10) RingSkip(&self->_play, have - kRate * 15 / 100);
+	if (have > kRate * 4 / 10) {
+		self->_statTrims++;
+		self->_statTrimmed += (uint32_t)(have - kRate * 15 / 100);
+		RingSkip(&self->_play, have - kRate * 15 / 100);
+	}
+	self->_statFillSum += (uint64_t)have;
+	self->_statFillN++;
+	if (have > self->_statFillMax) self->_statFillMax = (uint32_t)have;
 	uint8_t in[4096];
 	int64_t got = self->_buffering ? 0 : RingGet(&self->_play, in, MIN(n, 4096));
 	int16_t loudest = 0;
@@ -630,10 +657,28 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 		samples[i] = i < got ? ULawTable[in[i]] : 0;
 		if (samples[i] > loudest) loudest = samples[i];
 	}
-	if (got < n) self->_buffering = YES;
+	if (got < n) {
+		if (!wasBuffering) self->_statUnderruns++;
+		self->_buffering = YES;
+	}
 	self->_diagPlay++;
-	if (loudest > 300) self->_diagLoud++;
+	if (loudest > 300) {
+		self->_diagLoud++;
+		if (!self->_firstSound) self->_firstSound = CFAbsoluteTimeGetCurrent();
+	}
+#ifdef WA_DEV
+	if (self->_latArmed && loudest > 2000) {
+		self->_latHeard = CFAbsoluteTimeGetCurrent();
+		self->_latArmed = NO;
+	}
+#endif
 	return noErr;
+}
+
+static CFAbsoluteTime CPUSeconds(void) {
+	struct rusage ru;
+	getrusage(RUSAGE_SELF, &ru);
+	return ru.ru_utime.tv_sec + ru.ru_utime.tv_usec / 1e6 + ru.ru_stime.tv_sec + ru.ru_stime.tv_usec / 1e6;
 }
 
 // voicechat session 16khz. set up already while ringing, ios won't let bg apps change it later ('!cat')
@@ -700,6 +745,15 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 	_play.head = _play.tail = _rec.head = _rec.tail = 0;
 	_buffering = YES;
 	_ringbackPhase = 0;
+	_statUnderruns = _statTrims = _statTrimmed = _statFillN = _statFillMax = 0;
+	_statFillSum = 0;
+	_firstSound = _firstAudio = _statTickLast = _statTickMax = 0;
+	_cpuSum = 0;
+	_cpuN = _statReconnects = 0;
+	_timingLogged = NO;
+	_audioStartedAt = [NSDate date];
+	_cpuLast = CFAbsoluteTimeGetCurrent();
+	_cpuTime = CPUSeconds();
 	OSStatus err = AudioUnitInitialize(_unit);
 	if (!err) err = AudioOutputUnitStart(_unit);
 	if (err) {
@@ -727,7 +781,25 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 	WALog(@"audio restarted after the ring (%d)", (int)err);
 }
 
+- (void)logCallStats {
+	if (!_audioStartedAt) return;
+	double dur = -[_audioStartedAt timeIntervalSinceNow];
+	double perMin = dur > 1 ? _statUnderruns / (dur / 60) : 0;
+	double cpu = _cpuN ? _cpuSum / _cpuN : 0;
+	uint32_t fillAvg = _statFillN ? (uint32_t)(_statFillSum / _statFillN / 16) : 0;
+	WALog(@"call stats: %.0f s, %u underruns (%.1f/min), %u trims (%u ms thrown away), fill avg %u ms max %u ms, tick max %.0f ms, %d reconnects, cpu %.0f%%",
+		dur, _statUnderruns, perMin, _statTrims, _statTrimmed / 16, fillAvg, _statFillMax / 16, _statTickMax * 1000, _statReconnects, cpu);
+	if (dur >= 10) {
+		WADiag *diag = [WADiag shared];
+		[diag count:[@"call underruns " stringByAppendingString:perMin < 0.5 ? @"none" : perMin < 3 ? @"few" : @"many"]];
+		[diag count:[@"call cpu " stringByAppendingString:cpu < 25 ? @"low" : cpu < 50 ? @"mid" : @"high"]];
+		[diag count:[@"call fill " stringByAppendingString:fillAvg < 150 ? @"<150" : fillAvg < 300 ? @"150-300" : @"300+"]];
+	}
+	_audioStartedAt = nil;
+}
+
 - (void)stopAudio {
+	[self logCallStats];
 	[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(restartAudioAfterRing) object:nil];
 	[_sendTimer invalidate];
 	_sendTimer = nil;
@@ -748,6 +820,37 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 	_muted = _mutedFlag = NO;
 	_speaker = NO;
 }
+
+#ifdef WA_DEV
+// echo test call: a short tone into the mic stream, measured until it comes back out of the speaker
+- (void)devLatencyTest {
+	if (!_audioRunning || ![self.state isEqualToString:@"active"]) {
+		WALog(@"dev: latency test needs an active (echo) call");
+		return;
+	}
+	[self devLatencyRun:[NSMutableArray array]];
+}
+
+- (void)devLatencyRun:(NSMutableArray *)results {
+	if (results.count >= 5 || !_audioRunning) {
+		_latArmed = NO;
+		_mutedFlag = _muted;
+		WALog(@"dev: audio round trip %@ ms", [results componentsJoinedByString:@", "]);
+		return;
+	}
+	_mutedFlag = YES; // only the tone goes out
+	uint8_t tone[kRate * 8 / 100];
+	for (NSUInteger i = 0; i < sizeof(tone); i++) tone[i] = ULawEncode((int16_t)(sinf(2 * (float)M_PI * 1000 * i / kRate) * 9000));
+	_latHeard = 0;
+	_latSent = CFAbsoluteTimeGetCurrent();
+	_latArmed = YES;
+	RingPut(&_rec, tone, sizeof(tone));
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		[results addObject:self->_latHeard ? [NSString stringWithFormat:@"%d", (int)((self->_latHeard - self->_latSent) * 1000)] : @"-"];
+		[self devLatencyRun:results];
+	});
+}
+#endif
 
 #pragma mark - Audio socket
 
@@ -795,6 +898,7 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 }
 
 - (void)reconnectSoon {
+	if (_headDone && self.live) _statReconnects++; // not the close at the end
 	[self closeSocket];
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
 		if (self->_audioRunning && !self->_in) [self connectAudio];
@@ -814,14 +918,30 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 	Float32 volume = -1;
 	size = sizeof(volume);
 	AudioSessionGetProperty(kAudioSessionProperty_CurrentHardwareOutputVolume, &size, &volume);
-	WALog(@"audio diag: %u renders (%u with sound), %u bytes in, %u mic, route %@, volume %.2f, state %d",
+	CFAbsoluteTime cpuNow = CPUSeconds();
+	double cpu = _cpuLast ? (cpuNow - _cpuTime) / (now - _cpuLast) * 100 : 0;
+	_cpuTime = cpuNow;
+	_cpuLast = now;
+	_cpuSum += cpu;
+	_cpuN++;
+	WALog(@"audio diag: %u renders (%u with sound), %u bytes in, %u mic, route %@, volume %.2f, state %d, fill %lld ms, cpu %.0f%%",
 		_diagPlay, _diagLoud, _diagRecv, _diagRec, route ? (__bridge NSString *)route : @"?", volume,
-		(int)[UIApplication sharedApplication].applicationState);
+		(int)[UIApplication sharedApplication].applicationState, RingCount(&_play) / 16, cpu);
 	if (route) CFRelease(route);
 	_diagPlay = _diagLoud = _diagRecv = _diagRec = 0;
 }
 
 - (void)sendTick {
+	CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+	if (_statTickLast && now - _statTickLast > _statTickMax) _statTickMax = now - _statTickLast;
+	_statTickLast = now;
+	if (!_timingLogged && _firstSound && _firstAudio) {
+		_timingLogged = YES;
+		NSDate *from = _answeredAt ?: _callStartedAt ?: _audioStartedAt;
+		WALog(@"call timing: first audio %.0f ms, first sound %.0f ms after %@",
+			(_firstAudio - [from timeIntervalSinceReferenceDate]) * 1000, (_firstSound - [from timeIntervalSinceReferenceDate]) * 1000,
+			_answeredAt ? @"answering" : _callStartedAt ? @"calling" : @"audio start");
+	}
 	[self logAudioDiagnostics];
 	if (!_out) return;
 	if (_headDone) {
@@ -865,6 +985,7 @@ static OSStatus PlayCallback(void *ref, AudioUnitRenderActionFlags *flags, const
 				if (_headDone) {
 					RingPut(&_play, buf, n);
 					_diagRecv += (uint32_t)n;
+					if (!_firstAudio) _firstAudio = CFAbsoluteTimeGetCurrent();
 					continue;
 				}
 				[_head appendBytes:buf length:n];

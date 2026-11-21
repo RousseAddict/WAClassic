@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 
 // first start in the look of the ios 5/6 setup (linen, slide to set up), only for new installs.

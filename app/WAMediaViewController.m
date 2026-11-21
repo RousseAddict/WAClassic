@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <MediaPlayer/MediaPlayer.h>
 #import "WAMediaViewController.h"
 #import "WAClient.h"
@@ -11,6 +13,11 @@
 @end
 
 @implementation WAImageViewerController
+
+- (void)dealloc {
+	// ios 6 delegates aren't weak: a scroll or zoom animation ending after we're gone would message a dead object
+	if (self.isViewLoaded) WAClearScrollDelegates(self.view, self);
+}
 
 - (void)viewDidLoad {
 	[super viewDidLoad];

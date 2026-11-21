@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
@@ -389,6 +391,9 @@ static NSString *DayKey(long long ts) {
 	[_progressTimer invalidate];
 	[_recordTimer invalidate];
 	_player.delegate = nil;
+	// ios 6 delegates aren't weak: a scroll animation ending after we're gone would message a dead object
+	_table.delegate = nil;
+	_table.dataSource = nil;
 }
 
 - (void)viewWillAppear:(BOOL)animated {

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import "WAChatListViewController.h"
@@ -52,9 +54,12 @@ static UINavigationController *Nav(UIViewController *root) {
 	[NSURLCache setSharedURLCache:[[NSURLCache alloc] initWithMemoryCapacity:0 diskCapacity:0 diskPath:nil]];
 	UITabBarController *tabs = [self makeTabs];
 	tabs.selectedIndex = [WAClient shared].configured ? 3 : 4;
+	// voip relaunch: iOS often kills us in the background and starts us again. only the socket then,
+	// chats, assets and the rest come in applicationWillEnterForeground
+	BOOL background = application.applicationState == UIApplicationStateBackground;
 	if (![WAClient shared].configured) dispatch_async(dispatch_get_main_queue(), ^{ [self checkLinked]; });
 	else [[WAClient shared] chooseServer:^(BOOL reachable) {
-		if (!reachable) return;
+		if (!reachable || background) return;
 		[self.chats reload];
 		[self checkLinked];
 		[self showSettingsTooltipSoon];

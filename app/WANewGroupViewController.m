@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WANewGroupViewController.h"
 #import "WAClient.h"
@@ -13,6 +15,11 @@ static const NSUInteger kMaxRecipients = 50;
 	UITableView *_table;
 	UISearchBar *_search;
 	NSArray *_shown;
+}
+
+- (void)dealloc {
+	// ios 6 delegates aren't weak: a scroll or zoom animation ending after we're gone would message a dead object
+	if (self.isViewLoaded) WAClearScrollDelegates(self.view, self);
 }
 
 - (void)viewDidLoad {
@@ -122,6 +129,11 @@ static const NSUInteger kMaxRecipients = 50;
 	UIButton *_photoButton;
 	UIImage *_photo;
 	BOOL _pickingPhoto; // picker is for the broadcast photo
+}
+
+- (void)dealloc {
+	// ios 6 delegates aren't weak: a scroll or zoom animation ending after we're gone would message a dead object
+	if (self.isViewLoaded) WAClearScrollDelegates(self.view, self);
 }
 
 - (void)viewDidLoad {

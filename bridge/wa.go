@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 package main
 
 import (
@@ -407,6 +409,18 @@ func (b *Bridge) ensureChatName(ctx context.Context, chat types.JID, pushName st
 	if name != "" {
 		b.store.SetChatName(chat.String(), name)
 	}
+}
+
+// savedName: only the name from the phone's address book, no push name.
+func (b *Bridge) savedName(ctx context.Context, jid types.JID) string {
+	if b.cli.Store.Contacts == nil {
+		return ""
+	}
+	c, err := b.cli.Store.Contacts.GetContact(ctx, jid)
+	if err == nil && c.Found {
+		return firstNonEmpty(c.FullName, c.FirstName)
+	}
+	return ""
 }
 
 // contactName: address book name first, then push name.

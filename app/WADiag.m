@@ -1,8 +1,11 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import "WADiag.h"
 #import "WAClient.h"
 #import "WACall.h"
 #import "WAAssets.h"
 #import "WAUtil.h"
+#import <CommonCrypto/CommonDigest.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -12,15 +15,15 @@ static NSString *const kSend = @"http://update.waclassic.com/t";
 static NSString *const kForget = @"http://update.waclassic.com/t/delete";
 static NSString *const kCrashDir = @"/var/mobile/Library/Logs/CrashReporter";
 static const NSTimeInterval kEvery = 24 * 3600;
-// list version: 1 = 1.0.2 list, 2 = 1.0.3 list (see WADiag.h). 1.0.2 yeses count as 2
+// list version: 1 = 1.0.2 list, 2 = 1.0.3 list, 3 = 1.0.5 list (see WADiag.h). 1.0.2 yeses count as 2
 static NSString *const kConsent = @"diagConsent";
-static const NSInteger kConsentNow = 2;
+static const NSInteger kConsentNow = 3;
 
 @interface WADiag () <UIAlertViewDelegate>
 @end
 
 @implementation WADiag {
-	BOOL _sending, _launchNoted;
+	BOOL _sending, _launchNoted, _askingMore;
 }
 
 + (instancetype)shared {
@@ -37,17 +40,29 @@ static const NSInteger kConsentNow = 2;
 - (NSUserDefaults *)d { return [NSUserDefaults standardUserDefaults]; }
 - (BOOL)on { return [self.d boolForKey:WAPrefDiagnostics]; }
 // who said yes in 1.0.2 sends the 1.0.3 list too, without asking again (Aron's call, privacy policy says so)
-- (NSInteger)consent { return [self.d objectForKey:kConsent] ? [self.d integerForKey:kConsent] : (self.on ? kConsentNow : 0); }
-- (BOOL)extended { return self.on && self.consent >= kConsentNow; }
+- (NSInteger)consent { return [self.d objectForKey:kConsent] ? [self.d integerForKey:kConsent] : (self.on ? 2 : 0); }
+- (BOOL)extended { return self.on && self.consent >= 2; }
+- (BOOL)usage { return self.on && self.consent >= 3; }
 
 #pragma mark - Asking
 
 // also in the settings footer, keep both the same
-NSString *const WADiagWhat = @"Once a day: iPhone model, iOS and app version, bridge version and system, language, crash reports, error codes (also from your bridge), how late notifications arrive and how often the connection drops (in rough steps), upload sizes in steps, memory warnings, start time and whether known TLS or App Store tweaks are installed.";
+NSString *const WADiagWhat = @"Once a day: iPhone model, iOS and app version, bridge version and system, language, crash reports, error codes (also from your bridge), how late notifications arrive and how often the connection drops (in rough steps), upload sizes in steps, memory warnings, start time, whether known TLS or App Store tweaks are installed, how far setup got, which features get used and whether sending works (counts per day).";
 
 - (void)askIfNeeded {
+	if (_asking || ![WAClient shared].configured || [WACall shared].live) return;
+	// said yes before 1.0.5: the new counts need their own yes, asked once
+	if (self.extended && !self.usage && ![self.d boolForKey:@"diagAsked3"]) {
+		_asking = YES;
+		_askingMore = YES;
+		UIAlertView *alert = [[UIAlertView alloc] initWithTitle:WAL(@"Diagnostics")
+			message:WAL(@"WA Classic can also count how far setup got, which features get used and whether sending works, once a day. Never what you write or to whom.")
+			delegate:self cancelButtonTitle:WAL(@"Don't Send") otherButtonTitles:WAL(@"Send"), nil];
+		[alert show];
+		return;
+	}
 	// 1.0.2 yeses carry over without asking again, see -consent
-	if (_asking || [self.d boolForKey:@"diagAsked"] || ![WAClient shared].configured || [WACall shared].live) return;
+	if ([self.d boolForKey:@"diagAsked"]) return;
 	_asking = YES;
 	NSString *never = WAL(@"\n\nNever messages, contacts, numbers, names, your IP or location. You can change this in Settings › Chat Settings › Advanced.");
 	UIAlertView *alert = [[UIAlertView alloc] initWithTitle:WAL(@"Help Improve WA Classic?")
@@ -59,6 +74,13 @@ NSString *const WADiagWhat = @"Once a day: iPhone model, iOS and app version, br
 - (void)alertView:(UIAlertView *)alert clickedButtonAtIndex:(NSInteger)index {
 	_asking = NO;
 	BOOL yes = index != alert.cancelButtonIndex;
+	[self.d setBool:YES forKey:@"diagAsked3"];
+	if (_askingMore) {
+		_askingMore = NO;
+		if (yes) [self.d setInteger:kConsentNow forKey:kConsent];
+		WALog(@"diagnostics: 1.0.5 list %@", yes ? @"yes" : @"no");
+		return;
+	}
 	[self.d setBool:YES forKey:@"diagAsked"];
 	[self.d setBool:yes forKey:WAPrefDiagnostics];
 	[self.d setInteger:yes ? kConsentNow : 0 forKey:kConsent];
@@ -81,6 +103,23 @@ NSString *const WADiagWhat = @"Once a day: iPhone model, iOS and app version, br
 		[self.d setObject:uuid forKey:@"diagID"];
 	}
 	return uuid;
+}
+
+// sha256 of our own executable. the server knows the hashes of the released debs,
+// so rebuilt or patched copies of the app show up as modified instead of mixing into our numbers
+static NSString *BinaryHash(void) {
+	static NSString *hash;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{
+		NSData *bin = [NSData dataWithContentsOfFile:[NSBundle mainBundle].executablePath options:NSDataReadingMappedIfSafe error:NULL];
+		if (!bin.length) return;
+		unsigned char md[CC_SHA256_DIGEST_LENGTH];
+		CC_SHA256(bin.bytes, (CC_LONG)bin.length, md);
+		NSMutableString *hex = [NSMutableString stringWithCapacity:64];
+		for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", md[i]];
+		hash = hex;
+	});
+	return hash ?: @"";
 }
 
 static NSString *Machine(void) {
@@ -120,6 +159,49 @@ static NSString *Today(void) {
 
 - (void)count:(NSString *)code {
 	if (self.extended) [self record:code times:1];
+}
+
+// 1.0.5 list: "setup ...", "use ...", "send ..."
+- (void)countUsage:(NSString *)code {
+	if (self.usage) [self record:code times:1];
+}
+
+// each setup step once per install, a funnel of who got how far
+- (void)setupStep:(NSString *)step {
+	if (!self.usage) return;
+	NSString *key = [@"diagStep " stringByAppendingString:step];
+	if ([self.d boolForKey:key]) return;
+	[self.d setBool:YES forKey:key];
+	[self record:[@"setup " stringByAppendingString:step] times:1];
+}
+
+// what the app asks the bridge to do. posts only, never who or what
+- (void)noteRequest:(NSURLRequest *)req ok:(BOOL)ok {
+	if (!self.usage || ![req.HTTPMethod isEqualToString:@"POST"]) return;
+	static NSDictionary *sends, *uses;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{
+		sends = @{@"send": @"text", @"sendimage": @"photo", @"sendvideo": @"video", @"sendvoice": @"voice",
+			@"broadcast/send": @"broadcast", @"broadcast/resend": @"broadcast", @"react": @"reaction"};
+		uses = @{@"group/create": @"new group", @"call/start": @"call", @"call/answer": @"answer call",
+			@"chat/delete": @"delete chat", @"mute": @"mute", @"blocklist": @"block", @"group/subject": @"group subject",
+			@"group/photo": @"group photo", @"group/leave": @"leave group", @"group/participants": @"group members",
+			@"me": @"profile", @"me/photo": @"profile photo", @"me/lastseen": @"last seen"};
+	});
+	NSString *path = [req.URL.path stringByReplacingOccurrencesOfString:@"/api/" withString:@""];
+	// params are in the query or, for small posts, the body. media bodies are never read
+	NSString *body = req.HTTPBody.length < 4096 ? [[NSString alloc] initWithData:req.HTTPBody encoding:NSUTF8StringEncoding] : nil;
+	NSString *params = [NSString stringWithFormat:@"&%@&%@&", req.URL.query ?: @"", body ?: @""];
+	NSString *kind = sends[path];
+	if (kind) {
+		if ([params rangeOfString:@"&quote="].location != NSNotFound) kind = [kind stringByAppendingString:@" reply"];
+		[self record:[NSString stringWithFormat:@"send %@ %@", ok ? @"ok" : @"failed", kind] times:1];
+		return;
+	}
+	NSString *what = uses[path];
+	if (!what) return;
+	if ([path isEqualToString:@"call/start"] && [params rangeOfString:@"&video=1&"].location != NSNotFound) what = @"video call";
+	if (ok) [self record:[@"use " stringByAppendingString:what] times:1];
 }
 
 static NSString *Step(NSTimeInterval s, const double *limits, NSArray *names) {
@@ -162,7 +244,7 @@ static NSTimeInterval ProcessAge(void) {
 	NSMutableDictionary *days = [[self.d dictionaryForKey:@"diagErrors"] mutableCopy] ?: [NSMutableDictionary dictionary];
 	NSString *today = Today();
 	NSMutableDictionary *counts = [days[today] mutableCopy] ?: [NSMutableDictionary dictionary];
-	if (counts.count >= 80 && !counts[code]) return;
+	if (counts.count >= 120 && !counts[code]) return;
 	counts[code] = @([counts[code] integerValue] + times);
 	days[today] = counts;
 	// two weeks at most if sending keeps failing
@@ -316,11 +398,12 @@ static NSArray *KnownTweaks(void) {
 	NSDictionary *report = @{
 		@"id": [self installID], @"device": Machine(), @"ios": [UIDevice currentDevice].systemVersion ?: @"",
 		@"app": [NSBundle mainBundle].infoDictionary[@"CFBundleVersion"] ?: @"", @"pkg": pkg,
+		@"bundle": [NSBundle mainBundle].bundleIdentifier ?: @"", @"bin": BinaryHash(),
 		@"bridge": bridge[@"version"] ?: @"", @"platform": bridge[@"platform"] ?: @"", @"arch": bridge[@"arch"] ?: @"",
 		@"kernel": bridge[@"kernel"] ?: @"", @"docker": @([bridge[@"docker"] boolValue]),
 		@"away": @(c.awayURL.length > 0), @"look": @([[NSFileManager defaultManager] fileExistsAtPath:WAAssetPath(@"Tri-tone.caf")]),
 		@"lang": [NSLocale preferredLanguages].firstObject ?: @"", @"crashes": crashes, @"errors": errors,
-		@"consent": @(self.extended ? kConsentNow : 1), @"tweaks": self.extended ? KnownTweaks() : @[],
+		@"consent": @(self.usage ? 3 : self.extended ? 2 : 1), @"tweaks": self.extended ? KnownTweaks() : @[],
 	};
 	NSData *body = [NSJSONSerialization dataWithJSONObject:report options:0 error:NULL];
 	if (!body) return;
@@ -345,6 +428,7 @@ static NSArray *KnownTweaks(void) {
 
 - (void)turnedOn {
 	[self.d setBool:YES forKey:@"diagAsked"];
+	[self.d setBool:YES forKey:@"diagAsked3"];
 	[self.d setBool:YES forKey:WAPrefDiagnostics];
 	[self.d setInteger:kConsentNow forKey:kConsent];
 	[self.d setDouble:[[NSDate date] timeIntervalSince1970] forKey:@"diagCrashSeen"];
@@ -353,9 +437,11 @@ static NSArray *KnownTweaks(void) {
 
 - (void)chosenInSetup:(BOOL)send {
 	[self.d setBool:YES forKey:@"diagAsked"];
+	[self.d setBool:YES forKey:@"diagAsked3"];
+	// crashes from before the yes stay on the phone
+	if (send && !self.on) [self.d setDouble:[[NSDate date] timeIntervalSince1970] forKey:@"diagCrashSeen"];
 	[self.d setBool:send forKey:WAPrefDiagnostics];
 	[self.d setInteger:send ? kConsentNow : 0 forKey:kConsent];
-	if (send) [self.d setDouble:[[NSDate date] timeIntervalSince1970] forKey:@"diagCrashSeen"];
 	WALog(@"diagnostics: %@ (setup)", send ? @"yes" : @"no");
 }
 

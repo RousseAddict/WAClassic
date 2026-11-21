@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import "WAUtil.h"
 
 // english format, template for the other languages
@@ -142,4 +144,12 @@ NSString *WAEmojiForDisplay(NSString *emoji) {
 		i = NSMaxRange(r);
 	}
 	return out.length ? out : emoji;
+}
+
+void WAClearScrollDelegates(UIView *root, id owner) {
+	if ([root isKindOfClass:[UIScrollView class]] && ((UIScrollView *)root).delegate == owner) {
+		((UIScrollView *)root).delegate = nil;
+		if ([root isKindOfClass:[UITableView class]] && ((UITableView *)root).dataSource == owner) ((UITableView *)root).dataSource = nil;
+	}
+	for (UIView *v in root.subviews) WAClearScrollDelegates(v, owner);
 }

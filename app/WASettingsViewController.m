@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import "WASettingsViewController.h"
 #import "WAClient.h"
 #import "WAAssets.h"
@@ -117,7 +119,9 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-	return section == 1 ? WAL(@"WA Classic is an unofficial client, not affiliated with WhatsApp or Meta. It runs as a linked device through your own bridge.") : nil;
+	if (section != 1) return nil;
+	return [NSString stringWithFormat:@"%@\n\n%@", WAL(@"WA Classic is an unofficial client, not affiliated with WhatsApp or Meta. It runs as a linked device through your own bridge."),
+		WAL(@"WA Classic by aronsz26. Free software under the GNU GPLv3, source code: github.com/aronsz26/WAClassic")];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // prefix header for the ios 4 build
 // ios 5/6 string constants are NULL on ios 4 (weak import), reading them crashes.
 // redefine them as their literal values

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // WACallScreen - shows WA calls in springboard's real call screen
 // app writes callscreen.plist (+ .jpg) and posts com.aronsz26.wa4s.callscreen.update,
 // audio stays in the app. ui uses TelephonyUI / MobilePhone pieces:

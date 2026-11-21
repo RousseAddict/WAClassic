@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WAInfoViewController.h"
 #import "WAMediaViewController.h"
@@ -26,6 +28,11 @@ typedef NS_ENUM(NSInteger, WARow) { WARowPhone, WARowTopic, WARowMedia, WARowMut
 	NSNumber *_blocked;
 	UITableView *_subjectTable; // subject table next to the pic
 	NSDictionary *_selected;
+}
+
+- (void)dealloc {
+	// ios 6 delegates aren't weak: a scroll or zoom animation ending after we're gone would message a dead object
+	if (self.isViewLoaded) WAClearScrollDelegates(self.view, self);
 }
 
 - (instancetype)initWithJID:(NSString *)jid name:(NSString *)name group:(BOOL)group {

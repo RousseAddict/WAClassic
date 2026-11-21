@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // wa4s-bridge links to whatsapp as a companion device and serves a small HTTP/JSON api
 // for the old iphone. The phone stays the main device.
 package main
@@ -282,7 +284,7 @@ func (b *Bridge) apiChats(w http.ResponseWriter, r *http.Request) {
 		chats[i].Muted = b.mutedUntil(ctx, jid) != 0
 		contactName := ""
 		if !chats[i].Group {
-			contactName = b.contactName(ctx, jid)
+			contactName = b.savedName(ctx, jid) // a push name never beats the stored name
 		}
 		fallback := ""
 		if chats[i].Name == "" && (chats[i].Group || contactName == "") {

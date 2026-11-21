@@ -69,6 +69,8 @@ The websites (waclassic.com, guide.waclassic.com and the Cydia source cydia.wacl
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE). Built on [whatsmeow](https://github.com/tulir/whatsmeow), [hypermeow](https://github.com/polymorfa/hypermeow), [meowcaller](https://github.com/purpshell/meowcaller), [libsignal-protocol-go](https://github.com/polymorfa/libsignal-protocol-go), [go-qrcode](https://github.com/skip2/go-qrcode) and [FFmpeg](https://ffmpeg.org).
+Copyright (C) 2026 aronsz26. GPL-3.0, see [LICENSE](LICENSE), with two additional terms under section 7 in [NOTICE](NOTICE): forks keep the line "WA Classic by aronsz26" and the link to this repository in the source and in the app, and mark themselves as modified.
+
+Built on [whatsmeow](https://github.com/tulir/whatsmeow), [hypermeow](https://github.com/polymorfa/hypermeow), [meowcaller](https://github.com/purpshell/meowcaller), [libsignal-protocol-go](https://github.com/polymorfa/libsignal-protocol-go), [go-qrcode](https://github.com/skip2/go-qrcode) and [FFmpeg](https://ffmpeg.org).
 
 WhatsApp is a trademark of WhatsApp LLC.
