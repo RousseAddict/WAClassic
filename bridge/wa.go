@@ -70,7 +70,11 @@ func (b *Bridge) handle(evt any) {
 	case *events.StreamReplaced:
 		errCounts.add("wa stream replaced")
 	case *events.UndecryptableMessage:
-		errCounts.add("wa undecryptable")
+		if e.IsUnavailable && e.UnavailableType == events.UnavailableTypeViewOnce {
+			b.onUnavailableViewOnce(e)
+		} else {
+			errCounts.add("wa undecryptable")
+		}
 	case *events.ConnectFailure:
 		errCounts.add(fmt.Sprintf("wa connect failure %d", int(e.Reason)))
 	case *events.TemporaryBan:
@@ -79,6 +83,40 @@ func (b *Bridge) handle(evt any) {
 		errCounts.add("wa logged out")
 		log.Printf("logged out by the phone (reason %v)", e.Reason)
 		b.restartSoon("logged out") // restarts unlinked, shows qr again
+	}
+}
+
+// onUnavailableViewOnce stores a safe placeholder when WhatsApp sends the
+// view-once notification but withholds the message ciphertext from this device.
+// There is no media payload to display or download in this case.
+func (b *Bridge) onUnavailableViewOnce(e *events.UndecryptableMessage) {
+	ctx := context.Background()
+	chat := b.chatKey(ctx, e.Info.Chat)
+	if skipChat(chat) || e.Info.ID == "" {
+		return
+	}
+	sender := b.chatKey(ctx, e.Info.Sender)
+	m := &Message{
+		ID:     e.Info.ID,
+		Chat:   chat.String(),
+		Sender: sender.String(),
+		FromMe: e.Info.IsFromMe,
+		TS:     unix(e.Info.Timestamp),
+		Kind:   "view-once-media",
+		Text:   "",
+		Status: statusDelivered,
+	}
+	if m.FromMe {
+		m.Status = statusSent
+	}
+	added, err := b.store.AddMessage(m, nil, !m.FromMe)
+	if err != nil {
+		log.Printf("store unavailable view-once placeholder: %v", err)
+		return
+	}
+	if added {
+		log.Printf("stored unavailable view-once placeholder")
+		b.store.notify()
 	}
 }
 
@@ -111,7 +149,7 @@ func (b *Bridge) onMessage(e *events.Message, live bool) {
 		b.onReaction(ctx, chat, b.chatKey(ctx, e.Info.Sender), e.Info.IsFromMe, r, live)
 		return
 	}
-	kind, text := describe(e.Message)
+	kind, text, raw := describeEvent(e)
 	id := messageID(e)
 	if kind == "" || id == "" {
 		return // receipts, reactions, motion photo copies etc
@@ -132,10 +170,6 @@ func (b *Bridge) onMessage(e *events.Message, live bool) {
 	if m.FromMe {
 		m.Status = statusSent
 	}
-	var raw []byte
-	if kind != "text" {
-		raw, _ = proto.Marshal(e.Message)
-	}
 	added, err := b.store.AddMessage(m, raw, live)
 	if err != nil {
 		log.Printf("store message: %v", err)
@@ -147,6 +181,89 @@ func (b *Bridge) onMessage(e *events.Message, live bool) {
 			b.store.notify()
 		}
 	}
+}
+
+func describeEvent(e *events.Message) (kind, text string, raw []byte) {
+	msg := e.Message
+	viewOnce := e.IsViewOnce
+	// WhatsApp can nest ViewOnce inside an associated-child wrapper (or the
+	// reverse). The library unwraps these wrappers in a fixed order, so inspect
+	// the original payload as well to avoid silently dropping newer variants.
+	content, found := viewOnceContent(e.RawMessage, 0)
+	if !found {
+		content, found = viewOnceContent(e.Message, 0)
+	}
+	if found {
+		msg = content
+		viewOnce = true
+	}
+	kind, text = describe(msg)
+	if viewOnce {
+		switch kind {
+		case "image":
+			kind = "view-once-photo"
+		case "video":
+			kind = "view-once-video"
+		default:
+			kind = "view-once-media"
+		}
+		return kind, "", nil // never persist a payload or caption for view-once media
+	}
+	if kind != "text" {
+		raw, _ = proto.Marshal(e.Message)
+	}
+	return kind, text, raw
+}
+
+func viewOnceContent(msg *waE2E.Message, depth int) (*waE2E.Message, bool) {
+	if msg == nil || depth > 8 {
+		return nil, false
+	}
+	// WhatsApp has also moved the marker onto the media payload itself. The
+	// library's event flag only covers the older ViewOnceMessage wrappers.
+	if msg.GetImageMessage().GetViewOnce() || msg.GetVideoMessage().GetViewOnce() ||
+		msg.GetAudioMessage().GetViewOnce() || msg.GetExtendedTextMessage().GetViewOnce() {
+		return msg, true
+	}
+	if child := msg.GetViewOnceMessage().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	if child := msg.GetViewOnceMessageV2().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	if child := msg.GetViewOnceMessageV2Extension().GetMessage(); child != nil {
+		return unwrapMessageContainers(child, depth+1), true
+	}
+	for _, child := range []*waE2E.Message{
+		msg.GetAssociatedChildMessage().GetMessage(),
+		msg.GetEphemeralMessage().GetMessage(),
+		msg.GetDeviceSentMessage().GetMessage(),
+		msg.GetBotInvokeMessage().GetMessage(),
+		msg.GetEditedMessage().GetMessage(),
+	} {
+		if content, found := viewOnceContent(child, depth+1); found {
+			return content, true
+		}
+	}
+	return nil, false
+}
+
+func unwrapMessageContainers(msg *waE2E.Message, depth int) *waE2E.Message {
+	if msg == nil || depth > 8 {
+		return msg
+	}
+	for _, child := range []*waE2E.Message{
+		msg.GetAssociatedChildMessage().GetMessage(),
+		msg.GetEphemeralMessage().GetMessage(),
+		msg.GetDeviceSentMessage().GetMessage(),
+		msg.GetBotInvokeMessage().GetMessage(),
+		msg.GetEditedMessage().GetMessage(),
+	} {
+		if child != nil {
+			return unwrapMessageContainers(child, depth+1)
+		}
+	}
+	return msg
 }
 
 // new whatsapp sends hd photos/videos twice: the normal one and an hd copy pointing at it.
