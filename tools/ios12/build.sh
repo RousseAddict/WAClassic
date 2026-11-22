@@ -1,4 +1,7 @@
 #!/bin/bash
+# Based on WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+# Modified: an unofficial arm64 / iOS 12 build, not the official WA Classic.
+#
 # build.sh: rebuild WA Classic's iPhone app for arm64 / iOS 12, packaged as a .deb
 # for a jailbroken iPhone 5s or newer (installs to /Applications, like the original package).
 #
@@ -32,7 +35,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 SRC="${SRC:-$ROOT}"
 # upstream commit whose app/ code was security-reviewed before this build was made
-REVIEWED_COMMIT=94f9ca6e38e4408dc17a4ddd79bab40d64dbdd1d
+REVIEWED_COMMIT=bb21206d438914b9fe07c8d3e1db39c8cb4e91b6   # v1.0.5 (before: 94f9ca6, v1.0.4.1)
 
 ENV_LOCAL="$ROOT/.env.local"
 # shellcheck source=/dev/null
@@ -177,10 +180,10 @@ find "$L" -name .DS_Store -delete
 echo "[6/6] Packaging..."
 cat > "$L/DEBIAN/control" <<CTRL
 Package: $PKG
-Name: WA Classic (iOS 12 test build)
+Name: WA Classic for iOS 12 (based on WA Classic by aronsz26)
 Version: $DEBVER
 Architecture: iphoneos-arm
-Description: Unofficial arm64 rebuild of WA Classic $VERSION (source ${COMMIT:0:7}) for iOS 12, through your own WA Classic bridge. Not affiliated with WhatsApp, Meta or the WA Classic author.
+Description: Modified, unofficial arm64 rebuild of WA Classic $VERSION by aronsz26 (https://github.com/aronsz26/WAClassic, source ${COMMIT:0:7}) for iOS 12, through your own WA Classic bridge. Not the official WA Classic: not made or supported by its author, not affiliated with WhatsApp or Meta.
 Maintainer: local build
 Author: aronsz26
 Section: Social

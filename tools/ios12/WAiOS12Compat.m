@@ -1,3 +1,5 @@
+// Based on WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+//
 // Added by the iOS 12 build (tools/ios12), not part of WA Classic.
 //
 // iOS 8+ only shows local notifications (alerts, sounds, badges) after the app has

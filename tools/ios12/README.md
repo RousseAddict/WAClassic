@@ -1,10 +1,14 @@
 # WA Classic for iOS 12 (arm64)
 
-An unofficial **arm64 / iOS 12** build of the WA Classic app, for a **jailbroken iPhone 5s** or newer. The official app is 32-bit only (iOS 4–6). This build is not made or supported by the WA Classic author.
+An unofficial **arm64 / iOS 12** build of the WA Classic app, for a **jailbroken iPhone 5s** or newer. The official app is 32-bit only (iOS 4–6).
+
+**Based on [WA Classic by aronsz26](https://github.com/aronsz26/WAClassic), modified.** This is not the official WA Classic and is not made or supported by its author. GPLv3 with attribution terms, see [LICENSE](../../LICENSE) and [NOTICE](../../NOTICE).
 
 The app's code in `app/` is **not modified**. `build.sh` compiles it for a new target, adds one small file and repackages it.
 
-## Status on an iPhone 5s (iOS 12.5.8, 2026-11-20)
+## Status on an iPhone 5s (iOS 12.5.8)
+
+Tested with the 1.0.4.1 build on 2026-11-20. The 1.0.5 build (2026-11-21) is not tested on the phone yet.
 
 | Test | Result |
 |---|---|
@@ -43,7 +47,7 @@ chmod 600 .env.local
 tools/ios12/build.sh                 # → packages/com.aronsz26.wa4s-ios12_<version>+ios12.1_iphoneos-arm.deb
 LINKED_SDK= tools/ios12/build.sh     # without the SDK 9.3 stamp
 ```
-The script stops if `app/` differs from the commit that was security-reviewed (`94f9ca6`, v1.0.4.1). After reviewing newer code, rerun with `ALLOW_UNREVIEWED=1`.
+The script stops if `app/` differs from the commit that was security-reviewed (`bb21206`, v1.0.5). After reviewing newer code, rerun with `ALLOW_UNREVIEWED=1`.
 
 ## Installing
 
