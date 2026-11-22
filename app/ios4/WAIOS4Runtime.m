@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // WAIOS4Runtime - ARC runtime functions for ios 4 (3gs)
 // built without -fobjc-arc, ios 4 build only. ios 4's libobjc has no objc_retain etc
 // and no weak refs at all, libarclite never had weak and isn't shipped anymore.

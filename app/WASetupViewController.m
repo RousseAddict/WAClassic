@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WASetupViewController.h"
 #import "WADiag.h"
@@ -332,6 +334,7 @@ static UIImage *DrawnChatsImage(void) {
 	NSTimeInterval shown = -[_started timeIntervalSinceNow];
 	if (shown >= kLoadingLimit) {
 		WALog(@"setup: no chats after %d s, going on", (int)kLoadingLimit);
+		[[WADiag shared] setupStep:@"chats slow"];
 		[self finish];
 		return;
 	}
@@ -352,6 +355,7 @@ static UIImage *DrawnChatsImage(void) {
 	[_timer invalidate];
 	_timer = nil;
 	WALog(@"setup: chats loaded");
+	[[WADiag shared] setupStep:@"done"];
 	if (self.finished) self.finished();
 }
 
@@ -465,11 +469,14 @@ static UIImage *DrawnChatsImage(void) {
 		if (status == 200 && data.length) {
 			UIImage *img = [UIImage imageWithData:data scale:2];
 			if (img) [self showState:WAL(@"Point your phone at this code.\nIt renews itself every few seconds.") qr:img];
+			if (img) [[WADiag shared] setupStep:@"qr shown"];
 		} else if (status == 410) {
 			[self linkedNow];
 		} else if (status == 503) {
 			[self showState:WAL(@"Waiting for a code from WhatsApp…") qr:nil];
+			[[WADiag shared] setupStep:@"qr waiting for whatsapp"];
 		} else {
+			[[WADiag shared] setupStep:error ? @"qr bridge gone" : [NSString stringWithFormat:@"qr error %ld", (long)status]];
 			WALog(@"setup: qr status %ld %@", (long)status, error.localizedDescription ?: @"");
 			[self showState:error ? WAL(@"Connecting...") : [NSString stringWithFormat:WAL(@"There was a problem with the service. Code = %ld."), (long)status] qr:nil];
 			if (error) [[WAClient shared] chooseServer:nil];
@@ -482,6 +489,7 @@ static UIImage *DrawnChatsImage(void) {
 	[_timer invalidate];
 	_timer = nil;
 	WALog(@"setup: linked");
+	[[WADiag shared] setupStep:@"linked"];
 	[self showState:WAL(@"Connected") qr:nil];
 	// start counter at the bridge's so history sync doesn't notify
 	[[WAClient shared] get:@"/api/status" params:nil completion:^(id json, NSError *error) {
@@ -617,6 +625,11 @@ static UIFont *HowFont(void) {
 	UIView *_track, *_thumb;
 }
 
+- (void)dealloc {
+	// ios 6 delegates aren't weak: a scroll or zoom animation ending after we're gone would message a dead object
+	if (self.isViewLoaded) WAClearScrollDelegates(self.view, self);
+}
+
 - (void)loadView {
 	CGRect frame = [UIScreen mainScreen].applicationFrame;
 	// ios 5 style has a toolbar below instead of the green button
@@ -696,7 +709,8 @@ static UIFont *HowFont(void) {
 // terms style: numbered points, read to the end before Agree and Continue works
 - (void)fillScroll {
 	NSArray *points = @[
-		@[WAL(@"About WA Classic"), WAL(@"WA Classic is unofficial. It isn't made by or connected to WhatsApp or Meta.")],
+		@[WAL(@"About WA Classic"), WAL(@"WA Classic is unofficial. It isn't made by or connected to WhatsApp or Meta."),
+			WAL(@"WA Classic by aronsz26. Free software under the GNU GPLv3, source code: github.com/aronsz26/WAClassic")],
 		@[WAL(@"Your bridge"), WAL(@"WA Classic runs through your own bridge, a small program on your computer. It is linked to WhatsApp like WhatsApp Web. There is no WA Classic server: your messages go from WhatsApp to your bridge and then to this iPhone."),
 			WAL(@"The bridge stores your messages unencrypted, so only run it on a computer you trust.")],
 		@[WAL(@"Staying connected"), WAL(@"Keep the bridge running. While it's off or asleep, nothing arrives."),
@@ -753,7 +767,7 @@ static UIFont *HowFont(void) {
 // optional, off unless switched on. agreeing below doesn't turn it on
 - (CGFloat)addDiagnosticsAt:(CGFloat)y number:(NSUInteger)number width:(CGFloat)width left:(CGFloat)left {
 	y = [self addHeading:[NSString stringWithFormat:WAL(@"%lu. Diagnostics (optional)"), (unsigned long)number] y:y width:width left:left];
-	y = [self addText:WAL(@"Helps find bugs faster. Once a day: your iPhone model, iOS and app version, bridge version and system, language, crash reports and error codes. Never messages, contacts, numbers or names. You can change it later in Settings › Chat Settings › Advanced.")
+	y = [self addText:WAL(@"Helps find bugs faster. Once a day: your iPhone model, iOS and app version, bridge version and system, language, crash reports, error codes, how far setup got, which features get used and whether sending works. Never messages, contacts, numbers or names. You can change it later in Settings › Chat Settings › Advanced.")
 		font:HowFont() color:[UIColor blackColor] y:y width:width left:left] + 10;
 	_diag = [[UISwitch alloc] init];
 	_diag.on = WAPrefBool(WAPrefDiagnostics);
@@ -838,10 +852,9 @@ static UIFont *HowFont(void) {
 }
 
 - (void)next {
-	NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-	[d setBool:YES forKey:@"diagAsked"]; // asked here, no popup later
-	if (_diag.on && ![d boolForKey:WAPrefDiagnostics]) [d setDouble:[[NSDate date] timeIntervalSince1970] forKey:@"diagCrashSeen"];
-	[d setBool:_diag.on forKey:WAPrefDiagnostics];
+	// asked here, no popup later
+	[[WADiag shared] chosenInSetup:_diag.on];
+	[[WADiag shared] setupStep:@"start"];
 	// new install: bridge first, then qr
 	if (![WAClient shared].configured) {
 		WAConnectViewController *connect = [[WAConnectViewController alloc] init];
@@ -957,6 +970,7 @@ static void PushQR(UINavigationController *nav, BOOL ios5, void (^finished)(void
 		// already there or on the way, or we can't tell: straight to the qr code
 		BOOL ask = status == 200 && ([state isEqualToString:@"missing"] || [state isEqualToString:@"failed"]);
 		WALog(@"setup: bridge look %@", state ?: [NSString stringWithFormat:@"%ld", (long)status]);
+		if (ask) [[WADiag shared] setupStep:@"look asked"];
 		if (ask) {
 			WALookChoiceViewController *look = [[WALookChoiceViewController alloc] init];
 			look.ios5Style = ios5;
@@ -1074,10 +1088,12 @@ static void PushQR(UINavigationController *nav, BOOL ios5, void (^finished)(void
 	if (_busy || _choice < 0) return;
 	if (_choice == 1) {
 		WALog(@"setup: look not now");
+		[[WADiag shared] setupStep:@"look not now"];
 		[self goOn];
 		return;
 	}
 	WALog(@"setup: look download");
+	[[WADiag shared] setupStep:@"look download"];
 	[self setBusy:YES];
 	_note.text = WAL(@"Downloading…");
 	[[WAClient shared] post:@"/api/assets/fetch" params:nil completion:^(id json, NSError *error) {
@@ -1099,6 +1115,7 @@ static void PushQR(UINavigationController *nav, BOOL ios5, void (^finished)(void
 		NSString *state = json[@"state"];
 		if ([state isEqualToString:@"ready"]) {
 			WALog(@"setup: bridge has the look");
+			[[WADiag shared] setupStep:@"look ready"];
 			WAAssetsSync(nil); // to the phone while the qr code is up
 			[self goOn];
 		} else if ([state isEqualToString:@"failed"]) {
@@ -1116,6 +1133,7 @@ static void PushQR(UINavigationController *nav, BOOL ios5, void (^finished)(void
 	[_timer invalidate];
 	_timer = nil;
 	WALog(@"setup: look failed: %@", message);
+	[[WADiag shared] setupStep:@"look failed"];
 	_note.text = nil;
 	[self setBusy:NO];
 	[[[UIAlertView alloc] initWithTitle:WAL(@"Download Failed") message:message delegate:self

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WABroadcasts.h"
 #import "WANewGroupViewController.h"

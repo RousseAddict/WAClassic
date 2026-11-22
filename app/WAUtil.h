@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 #import "WALocalize.h"
 
@@ -14,3 +16,4 @@ UIColor *WANameColor(NSString *jid);
 
 // log.txt, capped ~200kb
 void WALog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+void WAClearScrollDelegates(UIView *root, id owner); // nil the delegate of every scroll view under root that points at owner

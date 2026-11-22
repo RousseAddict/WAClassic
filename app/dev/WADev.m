@@ -1,6 +1,9 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WADev.h"
 #import "../WAHello.h"
+#import "../WACall.h"
 #import "../WASetupViewController.h"
 #import "WACallsViewController.h"
 #import "../WAClient.h"
@@ -341,6 +344,7 @@ static void Command(CFNotificationCenterRef center, void *observer, CFStringRef 
 	else if ([what hasPrefix:@"tab"] || [what hasPrefix:@"row"] || [what isEqualToString:@"back"] || [what isEqualToString:@"pull"]) NavCommand(what);
 	else if ([what isEqualToString:@"kbtest"]) KeyboardTest(YES);
 	else if ([what isEqualToString:@"kbtestend"]) KeyboardTest(NO);
+	else if ([what isEqualToString:@"calllat"]) [[WACall shared] devLatencyTest];
 	else if ([what isEqualToString:@"uploadtest"]) UploadTest(@[@20000, @300000, @1000000, @3000000]);
 	else if ([what isEqualToString:@"statustab"]) SetStatusTab(!StatusTabOn());
 	else if ([what isEqualToString:@"menu"]) Show(nil);
@@ -381,7 +385,7 @@ void WADevStart(UIWindow *window) {
 		WADevCount.networkChanges++;
 	}];
 	for (NSString *what in @[@"menu", @"tests", @"stats", @"manual", @"log", @"close", @"message", @"clear", @"ring", @"hangup", @"banner",
-		@"calls", @"callsall", @"callsmissed", @"callsnew", @"callsedit", @"statustab", @"hello", @"hellodiag", @"hellothanks", @"helloterms", @"helloconnect", @"helloqr", @"helloloading", @"hellolook", @"hellolookdl", @"kbtest", @"kbtestend", @"uploadtest"]) {
+		@"calls", @"callsall", @"callsmissed", @"callsnew", @"callsedit", @"statustab", @"hello", @"hellodiag", @"hellothanks", @"helloterms", @"helloconnect", @"helloqr", @"helloloading", @"hellolook", @"hellolookdl", @"kbtest", @"kbtestend", @"calllat", @"uploadtest"]) {
 		NSString *name = [@"com.aronsz26.wa4s.dev." stringByAppendingString:what];
 		CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, Command, (__bridge CFStringRef)name, NULL,
 			CFNotificationSuspensionBehaviorDeliverImmediately);

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <CommonCrypto/CommonDigest.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 #import "WAClient.h"
@@ -124,6 +126,9 @@ NSString *WAEscape(NSString *s) {
 	NSCache *_avatars;
 	NSMutableDictionary *_avatarWaiters;
 	NSMutableSet *_noAvatar;
+	BOOL _choosing;
+	NSUInteger _chooseGeneration;
+	NSMutableArray *_chooseWaiters;
 }
 
 + (WAClient *)shared {
@@ -153,6 +158,7 @@ NSString *WAEscape(NSString *s) {
 }
 
 static BOOL gNetworkDown;
+static NSUInteger gNetworkGeneration;
 
 - (BOOL)networkUp {
 	return !gNetworkDown;
@@ -162,6 +168,7 @@ static BOOL gNetworkDown;
 static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilityFlags flags, void *info) {
 	WALog(@"network changed (flags %x)", flags);
 	gNetworkDown = !(flags & kSCNetworkReachabilityFlagsReachable);
+	gNetworkGeneration++;
 	[[WAClient shared] chooseServer:nil];
 	[[NSNotificationCenter defaultCenter] postNotificationName:WAClientNetworkChangedNotification object:nil];
 }
@@ -205,6 +212,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	while ([base hasSuffix:@"/"]) base = [base substringToIndex:base.length - 1];
 	if (![base hasPrefix:@"http://"] && ![base hasPrefix:@"https://"]) base = [@"http://" stringByAppendingString:base];
 	NSURL *url = [NSURL URLWithString:base];
+	[[WADiag shared] setupStep:@"bridge tried"];
 	if (!url.host.length) {
 		completion([NSError errorWithDomain:@"WA4S" code:0 userInfo:@{NSLocalizedDescriptionKey: WAL(@"Please enter the address of your bridge.")}]);
 		return;
@@ -218,6 +226,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	[WAConnection load:req pin:nil completion:^(NSData *data, NSInteger status, NSError *error) {
 		id json = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
 		if (error || status != 200 || ![json isKindOfClass:[NSDictionary class]] || ![json[@"token"] length]) {
+			[[WADiag shared] setupStep:error ? @"bridge unreachable" : status == 403 ? @"bridge wrong code" : @"bridge not wa classic"];
 			NSString *msg = error ? WAL(@"The bridge could not be reached. Check the address and that this iPhone is on the same Wi-Fi.")
 				: status == 403 ? WAL(@"Wrong or expired setup code. Restart the bridge for a new one.")
 				: [NSString stringWithFormat:WAL(@"This is not a WA Classic bridge (error %ld)."), (long)status];
@@ -225,6 +234,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 			completion([NSError errorWithDomain:@"WA4S" code:status userInfo:@{NSLocalizedDescriptionKey: msg}]);
 			return;
 		}
+		[[WADiag shared] setupStep:@"bridge connected"];
 		self.homeURL = base;
 		self.awayURL = json[@"awayURL"] ?: @"";
 		self.pin = json[@"pin"] ?: @"";
@@ -252,6 +262,8 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	[self load:req completion:^(NSData *data, NSInteger status, NSError *error) {
 		id json = data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
 		BOOL ok = status == 200 && [json isKindOfClass:[NSDictionary class]] && json[@"paired"] != nil;
+		if (!ok) WALog(@"probe %@ failed: %ld %@ %ld", [base isEqualToString:self.homeURL] ? @"home" : @"away",
+			(long)status, error.domain ?: @"", (long)error.code);
 		// bridge tells us away address + pin
 		if (ok && [base isEqualToString:self.homeURL] && [json[@"awayURL"] length] && [json[@"pin"] length] &&
 			(![json[@"awayURL"] isEqualToString:self.awayURL ?: @""] || ![json[@"pin"] isEqualToString:self.pin ?: @""])) {
@@ -264,8 +276,50 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 	}];
 }
 
-// try both, home wins. use away right away if that was last (no 4s wait)
+// lan address (192.168.x.x, foo.local ...): can't work over cellular, asking it only kept the phone awake 4 s
+static BOOL WALocalHost(NSString *host) {
+	host = host.lowercaseString;
+	if (!host.length) return NO;
+	if ([host hasSuffix:@".local"] || [host rangeOfString:@"."].location == NSNotFound) return YES;
+	int a = 0, b = 0;
+	if (sscanf(host.UTF8String, "%d.%d.", &a, &b) != 2) return NO;
+	return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168) || (a == 169 && b == 254);
+}
+
+// network change, keepalive, the poll and WABackground all ask at once: one round of probes answers
+// everyone who asked while it ran. a network change during the round means one more round
 - (void)chooseServer:(void (^)(BOOL reachable))done {
+	if (!_chooseWaiters) _chooseWaiters = [NSMutableArray array];
+	if (!done) done = ^(BOOL reachable) {};
+	[_chooseWaiters addObject:[done copy]];
+	if (_choosing) return;
+	_choosing = YES;
+	_chooseGeneration = gNetworkGeneration;
+	// without a task ios freezes the probes in the background, they time out on the next wake
+	// and everyone waiting gets a stale "no"
+	UIApplication *app = [UIApplication sharedApplication];
+	__block UIBackgroundTaskIdentifier task = [app beginBackgroundTaskWithExpirationHandler:^{
+		[app endBackgroundTask:task];
+		task = UIBackgroundTaskInvalid;
+	}];
+	[self chooseRound:^(BOOL reachable) {
+		self->_choosing = NO;
+		if (task != UIBackgroundTaskInvalid) [app endBackgroundTask:task];
+		task = UIBackgroundTaskInvalid;
+		NSArray *waiters = [self->_chooseWaiters copy];
+		[self->_chooseWaiters removeAllObjects];
+		if (self->_chooseGeneration != gNetworkGeneration) {
+			[self chooseServer:^(BOOL again) {
+				for (void (^w)(BOOL) in waiters) w(again);
+			}];
+			return;
+		}
+		for (void (^w)(BOOL) in waiters) w(reachable);
+	}];
+}
+
+// try both, home wins. use away right away if that was last (no 4s wait)
+- (void)chooseRound:(void (^)(BOOL reachable))done {
 	__block BOOL homeDone = NO, awayDone = NO, awayOK = NO, finished = NO;
 	BOOL wasAway = _away;
 	void (^finish)(BOOL) = ^(BOOL reachable) {
@@ -273,7 +327,9 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 		finished = YES;
 		if (done) done(reachable);
 	};
-	[self probe:self.homeURL completion:^(BOOL homeOK) {
+	NSString *home = self.homeURL;
+	if (!WAOnWiFi() && WALocalHost([NSURL URLWithString:home ?: @""].host)) home = nil;
+	[self probe:home completion:^(BOOL homeOK) {
 		homeDone = YES;
 		if (homeOK) {
 			[self useServer:self.homeURL away:NO];
@@ -337,6 +393,7 @@ static void NetworkChanged(SCNetworkReachabilityRef target, SCNetworkReachabilit
 			json = nil;
 		}
 		if (error) [self recordError:error request:req status:code];
+		[[WADiag shared] noteRequest:req ok:!error];
 		completion(json, error);
 	}];
 }
@@ -511,7 +568,8 @@ static const NSUInteger kPiece = 128 * 1024;
 
 - (void)startUpdatesFrom:(long long)upd {
 	[self noteUpd:upd];
-	if (_polling) return;
+	// the 25 s poll is for the open app, in the background WABackground's socket does it
+	if (_polling || [UIApplication sharedApplication].applicationState == UIApplicationStateBackground) return;
 	_polling = YES;
 	_pollGeneration++;
 	[self pollWithGeneration:_pollGeneration];

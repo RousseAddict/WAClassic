@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <Foundation/Foundation.h>
 
 // TLSFix (Skyglow) swaps the system tls for openssl in every app and checks certificates with

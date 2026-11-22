@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 package main
 
 import (
@@ -453,6 +455,9 @@ type audioPipe struct {
 	bytesToPhone   int
 	crossings      float64
 	crossingFrames int
+	// per call: frames the phone was late for (silence went to the peer), phone buffer high water,
+	// queue to the phone high water and frames dropped because the phone didn't read
+	shortReads, inMax, outMax, outDrops int
 }
 
 func newAudioPipe() *audioPipe {
@@ -493,6 +498,9 @@ func (p *audioPipe) attach(conn net.Conn, r *bufio.Reader) {
 			for _, b := range buf[:n] {
 				p.in = append(p.in, float32(ulawDecode(b))/32768)
 			}
+			if len(p.in) > p.inMax {
+				p.inMax = len(p.in)
+			}
 			// max 300ms, late audio is worse than lost audio
 			if extra := len(p.in) - 4800; extra > 0 {
 				p.in = append(p.in[:0], p.in[extra:]...)
@@ -511,6 +519,9 @@ func (p *audioPipe) ReadFrame() ([]float32, error) {
 	p.mu.Lock()
 	p.framesOut++
 	n := copy(frame, p.in)
+	if p.conn != nil && n < len(frame) {
+		p.shortReads++
+	}
 	p.in = append(p.in[:0], p.in[n:]...)
 	p.mu.Unlock()
 	return frame, nil
@@ -565,9 +576,13 @@ func (p *audioPipe) WriteFrame(frame []float32) error {
 			p.framesIn, p.loud, zcr, p.framesOut, p.conn != nil, p.bytesToPhone)
 		p.crossings, p.crossingFrames, p.bytesToPhone = 0, 0, 0
 	}
+	if l := len(p.out); l > p.outMax {
+		p.outMax = l
+	}
 	select {
 	case p.out <- data:
 	default: // phone not reading, drop
+		p.outDrops++
 	}
 	return nil
 }
@@ -587,6 +602,10 @@ func (p *audioPipe) close() {
 		return
 	}
 	p.closed = true
+	if p.framesIn+p.framesOut > 0 {
+		log.Printf("call audio stats: %d frames to the peer (%d short = phone late), phone buffer max %d ms, %d frames from the peer, queue max %d frames, %d dropped",
+			p.framesOut, p.shortReads, p.inMax/16, p.framesIn, p.outMax, p.outDrops)
+	}
 	close(p.out)
 	if p.conn != nil {
 		p.conn.Close()

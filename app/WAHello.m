@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WAHello.h"
 #import "WASetupViewController.h"
@@ -468,6 +470,7 @@ static UILabel *LinenLabel(CGRect frame, UIFont *font) {
 - (void)next {
 	if (_choice < 0) return;
 	[[WADiag shared] chosenInSetup:_choice == 0];
+	[[WADiag shared] setupStep:@"start"];
 	WAConnectViewController *connect = [[WAConnectViewController alloc] init];
 	connect.ios5Style = YES;
 	connect.finished = self.finished;

@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 
 // dev builds only (DEV=1 tools/build-app.sh), the normal package has none of this

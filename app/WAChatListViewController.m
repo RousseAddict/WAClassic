@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <QuartzCore/QuartzCore.h>
 #import "WAChatListViewController.h"
 #import "WAChatViewController.h"
@@ -441,7 +443,9 @@
 
 - (void)reload {
 	WAClient *client = [WAClient shared];
-	if (!client.configured || _loading) {
+	// launched in the background, the list loads when the app is opened
+	BOOL background = [UIApplication sharedApplication].applicationState == UIApplicationStateBackground;
+	if (!client.configured || _loading || background) {
 		[self endRefreshing];
 		return;
 	}
@@ -598,7 +602,9 @@
 	NSString *kind = chat[@"lastKind"];
 	BOOL fromMe = [chat[@"lastFromMe"] boolValue];
 	NSString *text = chat[@"lastText"];
-	if ([kind isEqualToString:@"call"]) {
+	if ([kind hasPrefix:@"view-once-"]) {
+		text = WAKindLabel(kind);
+	} else if ([kind isEqualToString:@"call"]) {
 		text = WACallText(@{@"text": text ?: @"", @"fromMe": @(fromMe), @"secs": chat[@"lastSecs"] ?: @0});
 	} else if ([kind isEqualToString:@"audio"]) {
 		NSInteger secs = [chat[@"lastSecs"] integerValue];

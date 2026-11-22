@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import "WAUtil.h"
 
 // english format, template for the other languages
@@ -59,7 +61,10 @@ NSString *WAKindLabel(NSString *kind) {
 	static NSDictionary *labels;
 	static NSUInteger gen;
 	if (!labels || gen != WALanguageGeneration()) gen = WALanguageGeneration(), labels = @{@"image": WAL(@"Photo"), @"video": WAL(@"Video"), @"audio": WAL(@"Audio"), @"sticker": WAL(@"Sticker"),
-		@"document": WAL(@"Document"), @"location": WAL(@"Location"), @"contact": WAL(@"Contact"), @"call": WAL(@"Voice call")};
+		@"document": WAL(@"Document"), @"location": WAL(@"Location"), @"contact": WAL(@"Contact"), @"call": WAL(@"Voice call"),
+		@"view-once-photo": WAL(@"View-once photo · open on your main phone"),
+		@"view-once-video": WAL(@"View-once video · open on your main phone"),
+		@"view-once-media": WAL(@"View-once media · open on your main phone")};
 	return labels[kind] ?: WAL(@"Message");
 }
 
@@ -139,4 +144,12 @@ NSString *WAEmojiForDisplay(NSString *emoji) {
 		i = NSMaxRange(r);
 	}
 	return out.length ? out : emoji;
+}
+
+void WAClearScrollDelegates(UIView *root, id owner) {
+	if ([root isKindOfClass:[UIScrollView class]] && ((UIScrollView *)root).delegate == owner) {
+		((UIScrollView *)root).delegate = nil;
+		if ([root isKindOfClass:[UITableView class]] && ((UITableView *)root).dataSource == owner) ((UITableView *)root).dataSource = nil;
+	}
+	for (UIView *v in root.subviews) WAClearScrollDelegates(v, owner);
 }

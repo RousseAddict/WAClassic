@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 #import <UIKit/UIKit.h>
 
 // call changed, see [WACall shared].info
@@ -35,4 +37,7 @@ extern NSString *const WACallChangedNotification;
 // WACallScreen tweak installed?
 + (BOOL)systemCallScreen;
 - (void)tellCallScreen;
+#ifdef WA_DEV
+- (void)devLatencyTest; // in an active echo call, logs "dev: audio round trip"
+#endif
 @end

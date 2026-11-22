@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // WACompat4 - ios 5 APIs for the ios 4 build (WA_IOS4)
 // only added if missing. theming calls are no-ops on ios 4 (logged once)
 #ifdef WA_IOS4

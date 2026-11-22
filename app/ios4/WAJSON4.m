@@ -1,3 +1,5 @@
+// WA Classic by aronsz26, https://github.com/aronsz26/WAClassic. GPLv3 with attribution terms, see LICENSE and NOTICE.
+
 // WAJSON4 - minimal NSJSONSerialization for ios 4 (flat namespace picks it up).
 // only what we use, no pretty printing
 #ifdef WA_IOS4
